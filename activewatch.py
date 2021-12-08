@@ -34,6 +34,7 @@ class WatchResponder:
     def __str__(self):
         return "WatchResponder(\"{}\",\"{}\")".format(self.filename, self.target)
 
+
 recursive = False
 recurseUnconditional = False
 patterns = []
@@ -49,8 +50,10 @@ def dprint(level, str, *args):
     if level <= verbosity:
         print(str.format(*args))
 
+
 def escape(str):
     return escape.sub('\.', str)
+
 
 def print_usage():
     print("Usage: {} [-d <directory>] [-r] <command>".format(sys.argv[0]))
@@ -63,6 +66,7 @@ def print_usage():
     print("    rm     <pattern>")
     print("    monitor")
 
+
 def copy_file(srcpath,tgturi):
     import subprocess
     cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", srcpath, tgturi]
@@ -74,6 +78,7 @@ def purge_patterns(dir):
     global patterns
     dprint(3, "Purging patterns for " + dir)
     patterns = list(filter(lambda elem: elem.rootdir != dir, patterns))
+
 
 def purge_watches(dir):
     global watches
@@ -112,8 +117,7 @@ def update_manifest(mfile,dir):
     for wr in rooted.values():
         dprint(5, "Adding file watch for {}", wr.filename)
         ino.add_watch(wr.filename)
-
-                
+    
 
 def scan_for_files(dir, recurse_files):
     if not dir.endswith('/'):
@@ -141,9 +145,9 @@ def scan_for_files(dir, recurse_files):
                 if match:
                     path=dir + ent.name
                     dprint(3, "File {} matches {}", path, pattern)
-
+                    
                     tgt = r.sub(wp.target, relpath)
-
+                    
                     watch = WatchResponder(dir, path, tgt)
                     watches[path] = watch
                     break
