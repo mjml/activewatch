@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import os
 import sys
 import inotify
@@ -18,7 +17,7 @@ class WatchPattern:
         self.target = tgt
 
     def __str__(self):
-        return "WatchPattern(\"{}\",\"{}\")".format(self.rootdir, self.re.pattern)
+        return "WatchPattern(\"{}\",\"{}\",\"{}\")".format(self.rootdir, self.re.pattern, self.target)
 
 class WatchResponder:
 
@@ -32,7 +31,8 @@ class WatchResponder:
         self.target = target
     
     def __str__(self):
-        return "WatchResponder(\"{}\",\"{}\")".format(self.filename, self.target)
+        fn = self.filename[len(self.rootdir):]
+        return "WatchResponder(\"{}\",\"{}\",\"{}\")".format(self.rootdir,fn, self.target)
 
 
 recursive = False
@@ -77,7 +77,9 @@ def copy_file(srcpath,tgturi):
 def purge_patterns(dir):
     global patterns
     dprint(3, "Purging patterns for " + dir)
+    savedpatterns = list(filter(lambda elem: elem.rootdir == dir, patterns))
     patterns = list(filter(lambda elem: elem.rootdir != dir, patterns))
+    dprint(5, "Purged patterns are: ", str(savedpatterns))
 
 
 def purge_watches(dir):
@@ -85,6 +87,7 @@ def purge_watches(dir):
     dprint(3, "Purging watches for " + dir)
     savedwatches = { k:v for k,v in watches.items() if v.rootdir == dir }
     watches = { k:v for k,v in watches.items() if v.rootdir != dir }
+    dprint(5, "Purged watches are: ", str(savedwatches))
     return savedwatches
 
 
@@ -109,17 +112,20 @@ def update_manifest(mfile,dir):
         dprint(5, "Removing file watch for {}", wr.filename)
         ino.remove_watch(wr.filename)
 
-    # Scan the manifest and let it add files, recursively if necessary
-    parse_manifest(dir, recursive)
+    # Parse the manifest
+    parse_manifest(dir)
+
+    # Now scan for files
+    scan_for_files(dir)
 
     # Re-add inotify watches for this directory
     rooted = { k:v for k,v in watches.items() if v.rootdir == dir }
     for wr in rooted.values():
-        dprint(5, "Adding file watch for {}", wr.filename)
+        dprint(5, "Adding file watch for {}", str(wr))
         ino.add_watch(wr.filename)
     
 
-def scan_for_files(dir, recurse_files):
+def scan_for_files(dir):
     if not dir.endswith('/'):
         dir = dir + '/'
     dprint(5, "Scanning for files in {}", dir)
@@ -148,16 +154,17 @@ def scan_for_files(dir, recurse_files):
                     
                     tgt = r.sub(wp.target, relpath)
                     
-                    watch = WatchResponder(dir, path, tgt)
+                    watch = WatchResponder(wp.rootdir, path, tgt)
+                    dprint(4, "Created {}", str(watch))
                     watches[path] = watch
                     break
         
-        if ent.is_dir() and recurse_files and not ent.name.startswith('.activewatch') and not ent.name=='.':
-            scan_for_files(dir + ent.name, recurse_files)
+        if ent.is_dir() and recursive and not ent.name.startswith('.activewatch') and not ent.name=='.':
+            scan_for_files(dir + ent.name)
 
 
 
-def parse_manifest(dir,recurse_files=False):
+def parse_manifest(dir):
     import os.path as path
 
     if not dir.endswith('/'):
@@ -193,8 +200,8 @@ def parse_manifest(dir,recurse_files=False):
         for line in lines:
             linenum=linenum+1
             m = lpat.match(line)
-            if m.lastindex != 2:
-                print("{0}:{1}: improperly formatted line\n".format(fn,linenum))
+            if m==None or m.lastindex != 2:
+                print("{0}:{1}: improperly formatted line".format(fn,linenum))
                 continue
             (pat,tgt) = (m[1], m[2])
             if pat.startswith('/'):
@@ -203,13 +210,12 @@ def parse_manifest(dir,recurse_files=False):
             else:
                 r = re.compile(pat)
             
-            dprint(5, "Watching {}: {} -> {}", dir, r.pattern, tgt)
+            #dprint(5, "Watching {}: {} -> {}", dir, r.pattern, tgt)
             wp = WatchPattern(dir,r,tgt)
+            dprint(5, "Created {}", str(wp) )
             patterns.append(wp)
             addedpatterns=addedpatterns+1
         
-        scan_for_files(dir,recurse_files)
-
     if not recursive:
         return
 
@@ -221,16 +227,18 @@ def parse_manifest(dir,recurse_files=False):
             dprint(3, "Recursing into {}", cdir)
             parse_manifest(cdir)
     
-    # pop off the patterns added before returning
-    if addedpatterns > 0:
-        del patterns[-addedpatterns:]
 
 
 def monitor_loop(dirs):
-    # Scan directories for manifests that will give details for each file
+    # Parse all manifests to create WatchPatterns
     for dir in dirs:
         parse_manifest(dir)
+    
+    # Scan directories for files to create WatchResponders
+    for dir in dirs:
+        scan_for_files(dir)
 
+    # Create inotify watches for manifests and WatchResponders
     global ino
     ino = inotify.adapters.Inotify()
 
