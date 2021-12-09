@@ -4,6 +4,7 @@ import sys
 import inotify
 import inotify.adapters
 import re
+import itertools
 import getopt
 
 class WatchPattern:
@@ -44,6 +45,7 @@ watches = {}
 manifests = []
 verbosity = 1
 mfre = re.compile('(.*)/\.activewatch/manifest')
+rulepat = re.compile("(\S+?)\:\s+(\S+)")
 escape = re.compile('\.')
 ino = None
 
@@ -225,10 +227,9 @@ def parse_manifest(dir):
 
         linenum=0
         lines = mfest.readlines()
-        lpat = re.compile("(\S+?)\:\s+(\S+)")
         for line in lines:
             linenum=linenum+1
-            m = lpat.match(line)
+            m = rulepat.match(line)
             if m==None or m.lastindex != 2:
                 print("{0}:{1}: improperly formatted line".format(fn,linenum))
                 continue
@@ -326,13 +327,15 @@ def add_pattern(pattern, targetspec):
         mfest.close()
     newline="{}: {}".format(pattern, targetspec)
     lines.append(newline)
-    print("manifest is now: " + str(lines))
     mfest = open_manifest(dir, "w+")
     lines = filter(lambda elem: elem + "\n", lines)
     mfest.writelines(lines)
     mfest.write("\n")
     mfest.close()
-    print(newline)
+    if (verbosity >= 2):
+        list_patterns()
+    else:
+        print(newline)
 
 
 
@@ -347,11 +350,39 @@ def remove_pattern(pattern):
         print("No manifest file present.")
         return
     
-    lines = list(filter(lambda elem: elem.split(':')[0].strip() != pattern, lines))
+    lines = list(filter(lambda elem: not elem.startswith(pattern), lines))
     mfest = open_manifest(dir, "w+")
     mfest.writelines(lines)
     mfest.close()
+    if (verbosity >= 2) :
+        list_patterns()
+    else:
+        print("removed " + pattern)
 
+
+def list_patterns():
+    dir = os.getcwd()    
+    mfest = open_manifest(dir, 'r')
+    if mfest:
+        lines = mfest.readlines()
+        mfest.close()
+    else:
+        print("No manifest file present.")
+        return
+    
+    def screen(elem):
+        if elem == None: return None
+        if len(elem)==0: return None
+        m = rulepat.match(elem)
+        if m==0: return None
+        return (m[1],m[2])
+
+    records = list(map(screen,lines))
+    z = list(zip(*records))
+    maxlength = max( [ len(elem) for elem in z[0] ])
+    
+    for r in records:
+        print("{pat:{width}}: {target}".format(pat=r[0], width=maxlength, target=r[1].strip()))
 
 
 if __name__ == "__main__":
@@ -392,18 +423,22 @@ if __name__ == "__main__":
 
     if (cmd == 'monitor'):
         monitor_loop(dirs)
-    if (cmd == 'add'):
+    elif (cmd == 'add'):
         args = vargs[1:]
         if len(args) != 2:
             print_usage()
             exit
         add_pattern(*args)
-    if (cmd == 'rm'):
+    elif (cmd == 'rm'):
         args = vargs[1:]
         if len(args) != 1:
             print_usage()
             exit
         remove_pattern(*args)
+    elif cmd=='list':
+        list_patterns()
+    else:
+        print_usage()
 
 
 
