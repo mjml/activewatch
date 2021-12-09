@@ -56,7 +56,7 @@ def escape(str):
 
 
 def print_usage():
-    print("Usage: {} [-d <directory>] [-r] <command>".format(sys.argv[0]))
+    print("Usage: aw [-d <directory>] [-r] <command>".format(sys.argv[0]))
     print("  Options:")
     print("    -d <directory>   Specify the starting directory in which to look for .activewatch")    
     print("    -r               Recurse into subdirectories")
