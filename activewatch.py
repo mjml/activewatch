@@ -1,4 +1,5 @@
 import os
+import os.path
 import sys
 import inotify
 import inotify.adapters
@@ -34,7 +35,8 @@ class WatchResponder:
         fn = self.filename[len(self.rootdir):]
         return "WatchResponder(\"{}\",\"{}\",\"{}\")".format(self.rootdir,fn, self.target)
 
-
+avoidhidden=True
+avoidgit=True
 recursive = False
 recurseUnconditional = False
 patterns = []
@@ -55,16 +57,40 @@ def escape(str):
     return escape.sub('\.', str)
 
 
+def open_manifest(dir, mode):
+    if not dir.endswith('/'):
+        dir = dir + '/'
+    awdir = dir + ".activewatch/"
+    if not os.path.exists(awdir):
+        if 'w' in mode:
+            os.makedirs(dir + '.activewatch')
+        else:
+            return None
+    if not os.path.isdir(awdir):
+        print("Error: .activewatch is not a directory.")
+        exit(3)
+    mfn = awdir + 'manifest'
+    
+    if 'r' in mode and not os.path.isfile(mfn):
+        print("Error: manifest file doesn't exist.")
+        exit(3)
+    
+    mfile = open(mfn, mode)
+    return mfile
+
+
 def print_usage():
     print("Usage: aw [-d <directory>] [-r] <command>".format(sys.argv[0]))
-    print("  Options:")
-    print("    -d <directory>   Specify the starting directory in which to look for .activewatch")    
-    print("    -r               Recurse into subdirectories")
-    print("    -R               Recurse below directories that don't contain .activewatch")
-    print("  <command> can be one of:")
-    print("    add    <pattern> <targetspec>")
-    print("    rm     <pattern>")
-    print("    monitor")
+    print("    Options:")
+    print("        --help                   This message")
+    print("        -d, --dir <directory>    Specify the starting directory in which to look for .activewatch")    
+    print("        -r                       Recurse into subdirectories while scanning for files")
+    print("        -R                       Recurse through directories that don't contain .activewatch while searching for manifests")
+    print("    <command> can be one of:")
+    print("        add    <pattern> <targetspec>")
+    print("        rm     <pattern>")
+    print("        monitor")
+    print()
 
 
 def copy_file(srcpath,tgturi):
@@ -159,7 +185,12 @@ def scan_for_files(dir):
                     watches[path] = watch
                     break
         
-        if ent.is_dir() and recursive and not ent.name.startswith('.activewatch') and not ent.name=='.':
+        if ent.is_dir() and \
+            recursive and \
+            (not ent.name.startswith('.activewatch')) and \
+            (not ent.name=='.') and \
+            (not ent.name=='.git' or not avoidgit) and\
+            (not ent.name.startswith('.') or not avoidhidden):
             scan_for_files(dir + ent.name)
 
 
@@ -172,27 +203,25 @@ def parse_manifest(dir):
 
     scan_curdir=True
     
-    if not path.exists(dir + ".activewatch"):
-        scan_curdir=False
-
-    fn = dir + ".activewatch/manifest"
-    if not path.exists(fn):
-        scan_curdir=False
-
     if not scan_curdir and not recurseUnconditional:
         return
 
+    fn = dir + ".activewatch/manifest"
+
     addedpatterns=0
+
+    try:
+        mfest = open_manifest(dir, "r") 
+        if mfest == None:
+            scan_curdir=False
+    except OSError as e:
+        print("Couldn't open {}: {}".format(fn,e.strerror))
+        scan_curdir=False
     
     if scan_curdir:
         dprint(5, "Parsing manifest in {}", dir)
-        manifests.append(fn)
 
-        try:
-            mfest = open(fn, "r") 
-        except OSError as e:
-            print("Couldn't open {}: {}".format(fn,e.strerror))
-            scan_curdir=False
+        manifests.append(fn)
 
         linenum=0
         lines = mfest.readlines()
@@ -221,7 +250,11 @@ def parse_manifest(dir):
 
     for ent in os.scandir(dir):
         if ent.is_dir():
-            if ent.name == '.' or ent.name == '..' or ent.name == '.activewatch':
+            if ent.name == '.' or \
+                ent.name == '..' or \
+                ent.name == '.activewatch' or \
+                (avoidhidden and ent.name.startswith('.')) or \
+                (avoidgit and ent.name=='.git'):
                 continue
             cdir = dir + ent.name
             dprint(3, "Recursing into {}", cdir)
@@ -230,6 +263,7 @@ def parse_manifest(dir):
 
 
 def monitor_loop(dirs):
+
     # Parse all manifests to create WatchPatterns
     for dir in dirs:
         parse_manifest(dir)
@@ -249,12 +283,12 @@ def monitor_loop(dirs):
 
     # Prepare inotify watchers for each found file
     for w in watches.values():
-        dprint(2, "Added file watch: {}", w)
+        dprint(2, "Added file watch: {} -> {}", w.filename, w.target)
         ino.add_watch(w.filename)
 
     # Main loop
-    try:
-        while True:
+    while True:
+        try:
             event = ino.event_gen(yield_nones=True)
             for e in event:
                 if e == None:
@@ -275,20 +309,58 @@ def monitor_loop(dirs):
                     tgt = wr.target
                     dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
                     copy_file(path,tgt)
+        except KeyboardInterrupt as ki:
+            print("Shutdown.")
+            exit(0)
+        except Exception as e:
+            print("Error: {}".format(e))
 
-    except KeyboardInterrupt as ki:
-        print("Shutdown.")
-        exit(0)
+
+
+def add_pattern(pattern, targetspec):
+    dir = os.getcwd()
+    mfest = open_manifest(dir, "r")
+    lines=[]
+    if mfest != None:
+        lines = mfest.readlines()
+        mfest.close()
+    newline="{}: {}".format(pattern, targetspec)
+    lines.append(newline)
+    print("manifest is now: " + str(lines))
+    mfest = open_manifest(dir, "w+")
+    lines = filter(lambda elem: elem + "\n", lines)
+    mfest.writelines(lines)
+    mfest.write("\n")
+    mfest.close()
+    print(newline)
+
+
+
+def remove_pattern(pattern):
+    dir = os.getcwd()
+    mfest = open_manifest(dir, "r")
+    lines=[]
+    if mfest != None:
+        lines = mfest.readlines()
+        mfest.close()
+    else:
+        print("No manifest file present.")
+        return
+    
+    lines = list(filter(lambda elem: elem.split(':')[0].strip() != pattern, lines))
+    mfest = open_manifest(dir, "w+")
+    mfest.writelines(lines)
+    mfest.close()
 
 
 
 if __name__ == "__main__":
     
     # Grab command-line arguments
-    (pairs, vargs) = getopt.getopt(sys.argv[1:],"d:rRv")
+    (pairs, vargs) = getopt.getopt(sys.argv[1:],"d:rRv",["dir", "help", "gittoo", "hidden"])
     dirs=[]
     for (k,v) in pairs:
-        if k=="-d":
+        if k=="-d" or k=="--dir":
             dirname = os.path.abspath(v)
             if not os.path.exists(dirname):
                 print("Path does not exist: " + v)
@@ -301,6 +373,13 @@ if __name__ == "__main__":
             recurseUnconditional=True
         if k=='-v':
             verbosity = verbosity + 1
+        if k=='--gittoo':
+            avoidgit=False
+        if k=='--hidden':
+            avoidhidden=False
+        if k=="--help":
+            print_usage()
+            exit(0)
     
     if len(vargs) < 1:
         print_usage()
@@ -314,9 +393,17 @@ if __name__ == "__main__":
     if (cmd == 'monitor'):
         monitor_loop(dirs)
     if (cmd == 'add'):
-        pass
+        args = vargs[1:]
+        if len(args) != 2:
+            print_usage()
+            exit
+        add_pattern(*args)
     if (cmd == 'rm'):
-        pass
+        args = vargs[1:]
+        if len(args) != 1:
+            print_usage()
+            exit
+        remove_pattern(*args)
 
 
 
