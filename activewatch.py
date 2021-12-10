@@ -59,6 +59,15 @@ def escape(str):
     return escape.sub('\.', str)
 
 
+def line_to_pattern_pair(elem):
+    if elem == None: return None
+    if len(elem)==0: return None
+    m = rulepat.match(elem)
+    if m==None: return None
+    if m==0: return None
+    return (m[1].strip(),m[2].strip())
+
+
 def open_manifest(dir, mode):
     if not dir.endswith('/'):
         dir = dir + '/'
@@ -79,6 +88,25 @@ def open_manifest(dir, mode):
     
     mfile = open(mfn, mode)
     return mfile
+
+
+def read_manifest(dir):
+    mfest = open_manifest(dir, 'r')
+    if mfest:
+        lines = mfest.readlines()
+        mfest.close()
+        return lines
+    else:
+        print("No manifest file found.")
+        return []
+
+
+def write_manifest(dir,lines):
+    mfest = open_manifest(dir, "w+")
+    mfest.write("\n".join(lines))
+    mfest.write("\n")
+    mfest.close()
+
 
 
 def print_usage():
@@ -321,18 +349,10 @@ def monitor_loop(dirs):
 
 def add_pattern(pattern, targetspec):
     dir = os.getcwd()
-    mfest = open_manifest(dir, "r")
-    lines=[]
-    if mfest != None:
-        lines = mfest.readlines()
-        mfest.close()
+    lines = read_manifest(dir)
     newline="{}: {}".format(pattern, targetspec)
     lines.append(newline)
-    mfest = open_manifest(dir, "w+")
-    lines = filter(lambda elem: elem + "\n", lines)
-    mfest.writelines(lines)
-    mfest.write("\n")
-    mfest.close()
+    write_manifest(dir,lines)
     if (verbosity >= 2):
         list_patterns()
     else:
@@ -340,50 +360,33 @@ def add_pattern(pattern, targetspec):
 
 
 
-def remove_pattern(pattern):
+def remove_pattern(pattern, targetspec=''):
     dir = os.getcwd()
-    mfest = open_manifest(dir, "r")
-    lines=[]
-    if mfest != None:
-        lines = mfest.readlines()
-        mfest.close()
+    lines = read_manifest(dir)
+    records = list(filter(lambda elem: elem != None, map(line_to_pattern_pair,lines)))
+    lines = [ elem[0] + ": " + elem[1] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[1])) ]
+    write_manifest(dir,lines)
+    if (len(targetspec)>0):
+        print("{}: {}".format(pattern,targetspec))
     else:
-        print("No manifest file present.")
-        return
+        print(pattern)
+
+def str_patterns():
+    lines = read_manifest(os.getcwd());
+    records = list(filter(lambda elem: elem != None, map(line_to_pattern_pair,lines)))
+    if len(records)==0:
+        return ""
+    z = list(zip(*records))
+    maxlength = max( [ len(elem) for elem in z[0] ])
+    maxlength=min(40,maxlength)
     
-    lines = list(filter(lambda elem: not elem.startswith(pattern), lines))
-    mfest = open_manifest(dir, "w+")
-    mfest.writelines(lines)
-    mfest.close()
-    if (verbosity >= 2) :
-        list_patterns()
-    else:
-        print("removed " + pattern)
+    return "\n".join([ "{pat:{width}}: {target}".format(pat=r[0], width=max(len(r[0])+1,maxlength+1), target=r[1].strip()) for r in records ])
 
 
 def list_patterns():
-    dir = os.getcwd()    
-    mfest = open_manifest(dir, 'r')
-    if mfest:
-        lines = mfest.readlines()
-        mfest.close()
-    else:
-        print("No manifest file present.")
-        return
-    
-    def screen(elem):
-        if elem == None: return None
-        if len(elem)==0: return None
-        m = rulepat.match(elem)
-        if m==0: return None
-        return (m[1],m[2])
-
-    records = list(map(screen,lines))
-    z = list(zip(*records))
-    maxlength = max( [ len(elem) for elem in z[0] ])
-    
-    for r in records:
-        print("{pat:{width}}: {target}".format(pat=r[0], width=maxlength, target=r[1].strip()))
+    s = str_patterns()
+    if len(s) > 0:
+        print(s)
 
 
 if __name__ == "__main__":
