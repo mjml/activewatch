@@ -74,8 +74,8 @@ def open_manifest(dir, mode):
     mfn = awdir + 'manifest'
     
     if 'r' in mode and not os.path.isfile(mfn):
-        print("Error: manifest file doesn't exist.")
-        exit(3)
+        print("Error: manifest under {} doesn't exist.".format(awdir))
+        return None
     
     mfile = open(mfn, mode)
     return mfile
@@ -89,16 +89,17 @@ def print_usage():
     print("        -r                       Recurse into subdirectories while scanning for files")
     print("        -R                       Recurse through directories that don't contain .activewatch while searching for manifests")
     print("    <command> can be one of:")
-    print("        add    <pattern> <targetspec>")
-    print("        rm     <pattern>")
+    print("        add      <pattern> <targetspec>")
+    print("        rm       <pattern>")
     print("        monitor")
+    print("        list")
     print()
 
 
 def copy_file(srcpath,tgturi):
     import subprocess
     cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", srcpath, tgturi]
-    dprint(2, "running command {}".format(" ".join(cmd)))
+    dprint(1, "running command {}".format(" ".join(cmd)))
     subprocess.run(cmd)
 
 

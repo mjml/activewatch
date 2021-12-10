@@ -22,9 +22,10 @@ Options:
     -R               Recurse below directories that don't contain .activewatch
 
 <command> can be one of:
-    add    <pattern> <targetspec>
-    rm     <pattern>
+    add      <pattern> <targetspec>
+    rm       <pattern>
     monitor
+		list
 
 The monitor command will start a user daemon. It is best run in a screen session. Its output is only interesting if something goes wrong.
 
