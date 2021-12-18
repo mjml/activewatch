@@ -7,35 +7,8 @@ import re
 import itertools
 import getopt
 
-class WatchPattern:
-
-    rootdir = ""
-    re = ""
-    target = ""
-
-    def __init__(self, root, re, tgt):
-        self.rootdir = root
-        self.re = re
-        self.target = tgt
-
-    def __str__(self):
-        return "WatchPattern(\"{}\",\"{}\",\"{}\")".format(self.rootdir, self.re.pattern, self.target)
-
-class WatchResponder:
-
-    rootdir = ""
-    filename = ""
-    target = ""
-
-    def __init__(self, root, fn, target):
-        self.rootdir = root
-        self.filename = fn
-        self.target = target
-    
-    def __str__(self):
-        fn = self.filename[len(self.rootdir):]
-        return "WatchResponder(\"{}\",\"{}\",\"{}\")".format(self.rootdir,fn, self.target)
-
+TypeSCP = 1
+TypeCMD = 2
 
 avoidhidden=True
 avoidgit=True
@@ -46,9 +19,88 @@ responders = {}
 manifests = []
 verbosity = 1
 mfre = re.compile('(.*)/\.activewatch/manifest')
-rulepat = re.compile("(\S+?)\:\s+(\S+)")
+rulepat1 = re.compile("([^:]+)\:([^:]+)")
+rulepat2 = re.compile("([^:]+)\:([^:]+)\:\s*([^:]+)")
 escape = re.compile('\.')
 ino = None
+
+
+class WatchPattern:
+
+    rootdir = ""
+    type = 0
+    pattern = ""
+    re = ""
+    target = ""
+
+    def __init__(self, root, typ, re, tgt):
+        self.rootdir = root
+        if typ == 'cmd':
+            self.type = TypeCMD
+        else:
+            self.type = TypeSCP
+        self.pattern = re.pattern
+        self.re = re
+        self.target = tgt
+
+    def __init__(self,manifestfn,dir,line,linenum):
+        self.rootdir = dir
+        m = rulepat2.fullmatch(line)
+        if m==None:
+            print("{0}:{1}: improperly formatted line".format(manifestfn,linenum))
+        if m.lastindex==3:
+            if m[2] == 'cmd':
+                self.type = TypeCMD
+            elif m[2] == 'scp':
+                self.type = TypeSCP
+            else:
+                raise ValueError("Expected 'scp' or 'cmd' for type field")
+            self.target = m[3]
+        elif m.lastindex==2:
+            self.type = TypeSCP
+            self.target = m[2]
+        
+        self.pattern = m[1]
+        if '\\0' in self.target:
+            self.re = re.compile(self.pattern)
+        elif self.pattern.startswith('/'):
+            self.re = re.compile(self.pattern + '.*')
+        elif self.pattern.endswith('$'):
+            self.re = re.compile('.*' + self.pattern)
+        else:
+            self.re = re.compile('.*' + self.pattern + '.*')
+
+
+    def __str__(self):
+        return "WatchPattern(\"{}\",\"{}\",\"{}\")".format(self.rootdir, self.pattern, self.target)
+
+
+class WatchResponder:
+
+    rootdir = ""
+    type = 0
+    filename = ""
+    target = ""
+
+    def __init__(self, root, typ, fn, target):
+        self.rootdir = root
+        if typ == 'cmd':
+            self.type = TypeCMD
+        else:
+            self.type = TypeSCP
+        self.filename = fn
+        self.target = target
+
+    def __init__(self, wp, relpath):
+        self.rootdir = wp.rootdir
+        self.type = wp.type
+        self.filename = self.rootdir + relpath
+        self.target = wp.re.sub(wp.target, relpath)
+    
+    def __str__(self):
+        fn = self.filename[len(self.rootdir):]
+        return "WatchResponder(\"{}\",\"{}\",\"{}\",\"{}\")".format(self.rootdir,self.type,fn,self.target)
+
 
 
 def dprint(level, str, *args):
@@ -58,15 +110,6 @@ def dprint(level, str, *args):
 
 def escape(str):
     return escape.sub('\.', str)
-
-
-def line_to_pattern_pair(elem):
-    if elem == None: return None
-    if len(elem)==0: return None
-    m = rulepat.match(elem)
-    if m==None: return None
-    if m==0: return None
-    return (m[1].strip(),m[2].strip())
 
 
 def open_manifest(dir, mode):
@@ -117,8 +160,11 @@ def copy_file(srcpath,tgturi):
 
 def add_responder(wr):
     global responders
-    #old method:
-    responders[wr.filename] = wr
+    if wr.filename in responders:
+        resps = responders[wr.filename]
+        resps.append(wr)
+    else:
+        responders[wr.filename] = [wr]
 
 
 def remove_responder(filename):
@@ -155,7 +201,7 @@ def update_manifest(mfile,dir):
     # filter out any patterns that may exist
     purge_patterns(dir)
 
-    # remove watches that were rooted at this manifest
+    # remove watches that previously originated in this directory
     removed = purge_responders(dir)
 
     # remove inotify watches that were rooted here
@@ -175,48 +221,6 @@ def update_manifest(mfile,dir):
         dprint(5, "Adding file watch for {}", str(wr))
         ino.add_watch(wr.filename)
     
-
-def scan_for_files(dir):
-    if not dir.endswith('/'):
-        dir = dir + '/'
-    dprint(5, "Scanning for files in {}", dir)
-    for ent in os.scandir(dir):            
-        if ent.is_file():
-            for wp in patterns:
-                r = wp.re
-                pattern = r.pattern
-                path = dir + ent.name
-
-                if path.startswith(wp.rootdir):
-                    relpath = path[len(wp.rootdir):]
-                else:
-                    relpath = ent.name
-                
-                if pattern.startswith('/'):
-                    relativepattern = True
-                    match = r.fullmatch(relpath)
-                else:
-                    relativepattern = False
-                    match = r.match(relpath)
-                
-                if match:
-                    path=dir + ent.name
-                    dprint(3, "File {} matches {}", path, pattern)
-                    tgt = r.sub(wp.target, relpath)
-                    wr = WatchResponder(wp.rootdir, path, tgt)
-                    dprint(4, "Created {}", str(wr))
-                    #responders[path] = wr
-                    add_responder(wr)
-                    break
-        
-        if ent.is_dir() and \
-            recursive and \
-            (not ent.name.startswith('.activewatch')) and \
-            (not ent.name=='.') and \
-            (not ent.name=='.git' or not avoidgit) and\
-            (not ent.name.startswith('.') or not avoidhidden):
-            scan_for_files(dir + ent.name)
-
 
 def parse_manifest(dir):
     import os.path as path
@@ -250,19 +254,11 @@ def parse_manifest(dir):
         lines = mfest.readlines()
         for line in lines:
             linenum=linenum+1
-            m = rulepat.match(line)
-            if m==None or m.lastindex != 2:
-                print("{0}:{1}: improperly formatted line".format(fn,linenum))
-                continue
-            (pat,tgt) = (m[1], m[2])
-            if pat.startswith('/'):
-                pat = pat[1:]
-                r = re.compile(escape(dir) + pat)
-            else:
-                r = re.compile(pat)
-            
-            #dprint(5, "Watching {}: {} -> {}", dir, r.pattern, tgt)
-            wp = WatchPattern(dir,r,tgt)
+
+            try:
+                wp = WatchPattern(fn,dir,line,linenum)
+            except ValueError as ve:
+                dprint(1, "Couldn't parse: " + str(ve))
             dprint(5, "Created {}", str(wp) )
             patterns.append(wp)
             addedpatterns=addedpatterns+1
@@ -281,7 +277,43 @@ def parse_manifest(dir):
             cdir = dir + ent.name
             dprint(3, "Recursing into {}", cdir)
             parse_manifest(cdir)
-    
+     
+
+def scan_for_files(dir):
+    if not dir.endswith('/'):
+        dir = dir + '/'
+    dprint(5, "Scanning for files in {}", dir)
+    for ent in os.scandir(dir):            
+        if ent.is_file():
+            for wp in patterns:
+                r = wp.re
+                
+                pattern = r.pattern
+                path = ent.name
+
+                if path.startswith(wp.rootdir):
+                    relpath = path[len(wp.rootdir):]
+                else:
+                    relpath = ent.name
+                
+                match = r.fullmatch(relpath)                
+                if match:
+                    path=dir + ent.name
+                    dprint(3, "File {} matches {}", path, pattern)
+
+                    wr = WatchResponder(wp, relpath)
+                    dprint(4, "Created {}", str(wr))
+                    add_responder(wr)
+                    break
+                
+        
+        if ent.is_dir() and \
+            recursive and \
+            (not ent.name.startswith('.activewatch')) and \
+            (not ent.name=='.') and \
+            (not ent.name=='.git' or not avoidgit) and\
+            (not ent.name.startswith('.') or not avoidhidden):
+            scan_for_files(dir + ent.name)
 
 
 def monitor_loop(dirs):
@@ -327,10 +359,14 @@ def monitor_loop(dirs):
                         update_manifest(path, m[1])
                     if path not in responders:
                         continue
-                    wr = responders[path]
-                    tgt = wr.target
-                    dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
-                    copy_file(path,tgt)
+                    responders = responders[path]
+                    for wr in responders:
+                        tgt = wr.target
+                        dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
+                        # old way:
+                        copy_file(path,tgt)
+                        # new way:
+                        #wr.respond()
         except KeyboardInterrupt as ki:
             print("Shutdown.")
             exit(0)
