@@ -36,12 +36,13 @@ class WatchResponder:
         fn = self.filename[len(self.rootdir):]
         return "WatchResponder(\"{}\",\"{}\",\"{}\")".format(self.rootdir,fn, self.target)
 
+
 avoidhidden=True
 avoidgit=True
 recursive = False
 recurseUnconditional = False
 patterns = []
-watches = {}
+responders = {}
 manifests = []
 verbosity = 1
 mfre = re.compile('(.*)/\.activewatch/manifest')
@@ -104,24 +105,7 @@ def read_manifest(dir):
 def write_manifest(dir,lines):
     mfest = open_manifest(dir, "w+")
     mfest.write("\n".join(lines))
-    mfest.write("\n")
     mfest.close()
-
-
-
-def print_usage():
-    print("Usage: aw [-d <directory>] [-r] <command>".format(sys.argv[0]))
-    print("    Options:")
-    print("        --help                   This message")
-    print("        -d, --dir <directory>    Specify the starting directory in which to look for .activewatch")    
-    print("        -r                       Recurse into subdirectories while scanning for files")
-    print("        -R                       Recurse through directories that don't contain .activewatch while searching for manifests")
-    print("    <command> can be one of:")
-    print("        add      <pattern> <targetspec>")
-    print("        rm       <pattern>")
-    print("        monitor")
-    print("        list")
-    print()
 
 
 def copy_file(srcpath,tgturi):
@@ -129,6 +113,16 @@ def copy_file(srcpath,tgturi):
     cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", srcpath, tgturi]
     dprint(1, "running command {}".format(" ".join(cmd)))
     subprocess.run(cmd)
+
+
+def add_responder(wr):
+    global responders
+    #old method:
+    responders[wr.filename] = wr
+
+
+def remove_responder(filename):
+    del responders[filename]
 
 
 def purge_patterns(dir):
@@ -139,11 +133,11 @@ def purge_patterns(dir):
     dprint(5, "Purged patterns are: ", str(savedpatterns))
 
 
-def purge_watches(dir):
-    global watches
+def purge_responders(dir):
+    global responders
     dprint(3, "Purging watches for " + dir)
-    savedwatches = { k:v for k,v in watches.items() if v.rootdir == dir }
-    watches = { k:v for k,v in watches.items() if v.rootdir != dir }
+    savedwatches = { k:v for k,v in responders.items() if v.rootdir == dir }
+    responders = { k:v for k,v in responders.items() if v.rootdir != dir }
     dprint(5, "Purged watches are: ", str(savedwatches))
     return savedwatches
 
@@ -162,7 +156,7 @@ def update_manifest(mfile,dir):
     purge_patterns(dir)
 
     # remove watches that were rooted at this manifest
-    removed = purge_watches(dir)
+    removed = purge_responders(dir)
 
     # remove inotify watches that were rooted here
     for wr in removed.values():
@@ -176,7 +170,7 @@ def update_manifest(mfile,dir):
     scan_for_files(dir)
 
     # Re-add inotify watches for this directory
-    rooted = { k:v for k,v in watches.items() if v.rootdir == dir }
+    rooted = { k:v for k,v in responders.items() if v.rootdir == dir }
     for wr in rooted.values():
         dprint(5, "Adding file watch for {}", str(wr))
         ino.add_watch(wr.filename)
@@ -208,12 +202,11 @@ def scan_for_files(dir):
                 if match:
                     path=dir + ent.name
                     dprint(3, "File {} matches {}", path, pattern)
-                    
                     tgt = r.sub(wp.target, relpath)
-                    
-                    watch = WatchResponder(wp.rootdir, path, tgt)
-                    dprint(4, "Created {}", str(watch))
-                    watches[path] = watch
+                    wr = WatchResponder(wp.rootdir, path, tgt)
+                    dprint(4, "Created {}", str(wr))
+                    #responders[path] = wr
+                    add_responder(wr)
                     break
         
         if ent.is_dir() and \
@@ -223,7 +216,6 @@ def scan_for_files(dir):
             (not ent.name=='.git' or not avoidgit) and\
             (not ent.name.startswith('.') or not avoidhidden):
             scan_for_files(dir + ent.name)
-
 
 
 def parse_manifest(dir):
@@ -312,7 +304,7 @@ def monitor_loop(dirs):
         ino.add_watch(m)
 
     # Prepare inotify watchers for each found file
-    for w in watches.values():
+    for w in responders.values():
         dprint(2, "Added file watch: {} -> {}", w.filename, w.target)
         ino.add_watch(w.filename)
 
@@ -333,9 +325,9 @@ def monitor_loop(dirs):
                     m = mfre.fullmatch(path)
                     if m and os.path.exists(m[1]) and os.path.isdir(m[1]):
                         update_manifest(path, m[1])
-                    if path not in watches:
+                    if path not in responders:
                         continue
-                    wr = watches[path]
+                    wr = responders[path]
                     tgt = wr.target
                     dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
                     copy_file(path,tgt)
@@ -344,7 +336,6 @@ def monitor_loop(dirs):
             exit(0)
         except Exception as e:
             print("Error: {}".format(e))
-
 
 
 def add_pattern(pattern, targetspec):
@@ -359,7 +350,6 @@ def add_pattern(pattern, targetspec):
         print(newline)
 
 
-
 def remove_pattern(pattern, targetspec=''):
     dir = os.getcwd()
     lines = read_manifest(dir)
@@ -370,6 +360,7 @@ def remove_pattern(pattern, targetspec=''):
         print("{}: {}".format(pattern,targetspec))
     else:
         print(pattern)
+
 
 def str_patterns():
     lines = read_manifest(os.getcwd());
@@ -387,6 +378,23 @@ def list_patterns():
     s = str_patterns()
     if len(s) > 0:
         print(s)
+
+
+def print_usage():
+    print("Usage: aw [-d <directory>] [-r] <command ...>".format(sys.argv[0]))
+    print("    Options:")
+    print("        -d, --dir <directory>    starting directory in which to look for .activewatch")
+    print("        --gittoo                 recurse into .git directories also (off by default)")
+    print("        --help                   this message")
+    print("        --hidden                 recurse into .hidden directories also (off by default)")
+    print("        -r                       recurse into subdirectories while scanning for files")
+    print("        -R                       recurse through directories that don't contain .activewatch while searching for manifests")
+    print("    <command ...> can be:")
+    print("        list")
+    print("        add      <pattern> <targetspec>")
+    print("        rm       <pattern>")
+    print("        monitor")
+    print()
 
 
 if __name__ == "__main__":
