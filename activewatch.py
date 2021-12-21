@@ -7,6 +7,7 @@ import re
 import itertools
 import getopt
 import traceback
+import shlex
 
 TypeSCP = 1
 TypeCMD = 2
@@ -20,8 +21,8 @@ responders = {}
 manifests = []
 verbosity = 1
 mfre = re.compile('(.*)/\.activewatch/manifest')
-rulepat1 = re.compile('([^:]+)\\:\\s*(.+)\\s*')
-rulepat2 = re.compile('([^:]+)\\:([^:]+)\\:\\s*(.+)\\s*')
+rulepat1 = re.compile('([^:]+)\\s*\\:\\s*(.+)\\s*')
+rulepat2 = re.compile('([^:]+)\\s*\\:([^:]+)\\:\\s*(.+)\\s*')
 escape = re.compile('\.')
 ino = None
 
@@ -59,12 +60,12 @@ class WatchPattern:
                 self.type = TypeSCP
             else:
                 raise ValueError("Expected 'scp' or 'cmd' for type field")
-            self.target = m[3]
+            self.target = m[3].strip()
         elif m.lastindex==2:
             self.type = TypeSCP
-            self.target = m[2]
+            self.target = m[2].strip()
         
-        self.pattern = m[1]
+        self.pattern = m[1].strip()
         if '\\0' in self.target:
             self.re = re.compile(self.pattern)
         elif self.pattern.startswith('/'):
@@ -106,10 +107,20 @@ class WatchResponder:
         return "WatchResponder(\"{}\",\"{}\",\"{}\",\"{}\")".format(self.rootdir,self.type,fn,self.target)
 
     def respond(self):
+        import subprocess
         if self.type == TypeSCP:
-            pass
+            cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
+            dprint(1, " ".join(cmd))
+            subprocess.run(cmd)
         elif self.type == TypeCMD:
-            pass
+            relpath = self.filename
+            basename = os.path.basename(self.filename)
+            if self.filename.startswith(self.rootdir):
+                relpath = self.filename[len(self.rootdir):]
+            cmd = self.target.format(fn=self.filename, type=self.type, tgt=self.target, relpath=relpath, basename=basename)
+            cmdparts = shlex.split(cmd)
+            dprint(1, "Running: " + str(cmdparts))
+            subprocess.run(cmdparts, cwd=self.rootdir)
 
 
 
@@ -339,7 +350,8 @@ def scan_for_files(dir):
     if not dir.endswith('/'):
         dir = dir + '/'
     dprint(5, "Scanning for files in {}", dir)
-    for ent in os.scandir(dir):            
+    dirwatched=False
+    for ent in os.scandir(dir):
         if ent.is_file():
             for wp in patterns:
                 r = wp.re
@@ -359,7 +371,7 @@ def scan_for_files(dir):
                     wr = WatchResponder(wp, relpath)
                     dprint(4, "Created {}", str(wr))
                     add_responder(wr)
-                    
+                    dirwatched=True    
         
         if ent.is_dir() and \
             recursive and \
@@ -368,6 +380,7 @@ def scan_for_files(dir):
             (not ent.name=='.git' or not avoidgit) and\
             (not ent.name.startswith('.') or not avoidhidden):
             scan_for_files(dir + ent.name)
+    
 
 
 def monitor_loop(dirs):
@@ -419,10 +432,8 @@ def monitor_loop(dirs):
                     for wr in responders[path]:
                         tgt = wr.target
                         dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
-                        # old way:
-                        copy_file(path,tgt)
-                        # new way:
-                        #wr.respond()
+                        wr.respond()
+
         except KeyboardInterrupt as ki:
             print("Shutdown.")
             exit(0)
@@ -515,7 +526,7 @@ if __name__ == "__main__":
         monitor_loop(dirs)
     elif (cmd == 'add'):
         args = vargs[1:]
-        if len(args) != 2:
+        if len(args) not in [2,3]:
             print_usage()
             exit
         if (len(args)==2):
