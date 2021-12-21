@@ -119,7 +119,8 @@ def line_to_pattern_tuple(line):
         return (m[1], m[2], m[3])
     else:
         m = rulepat1.match(line)
-        return (m[1], 'scp', m[2])
+        if m:
+            return (m[1], 'scp', m[2])
     return None
 
 
@@ -317,6 +318,7 @@ def parse_manifest(dir):
      
 
 def scan_for_files(dir):
+    global patterns
     if not dir.endswith('/'):
         dir = dir + '/'
     dprint(5, "Scanning for files in {}", dir)
@@ -327,7 +329,7 @@ def scan_for_files(dir):
                 
                 pattern = wp.pattern
                 path = dir + ent.name
-
+                
                 if path.startswith(wp.rootdir):
                     relpath = path[len(wp.rootdir):]
                 else:
@@ -340,7 +342,7 @@ def scan_for_files(dir):
                     wr = WatchResponder(wp, relpath)
                     dprint(4, "Created {}", str(wr))
                     add_responder(wr)
-                    break
+                    
         
         if ent.is_dir() and \
             recursive and \
