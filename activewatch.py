@@ -6,6 +6,7 @@ import inotify.adapters
 import re
 import itertools
 import getopt
+import traceback
 
 TypeSCP = 1
 TypeCMD = 2
@@ -19,8 +20,8 @@ responders = {}
 manifests = []
 verbosity = 1
 mfre = re.compile('(.*)/\.activewatch/manifest')
-rulepat1 = re.compile("([^:]+)\:([^:]+)")
-rulepat2 = re.compile("([^:]+)\:([^:]+)\:\s*([^:]+)")
+rulepat1 = re.compile('([^:]+)\\:\\s*(.+)\\s*')
+rulepat2 = re.compile('([^:]+)\\:([^:]+)\\:\\s*(.+)\\s*')
 escape = re.compile('\.')
 ino = None
 
@@ -47,7 +48,10 @@ class WatchPattern:
         self.rootdir = dir
         m = rulepat2.fullmatch(line)
         if m==None:
-            print("{0}:{1}: improperly formatted line".format(manifestfn,linenum))
+            m = rulepat1.fullmatch(line)
+            if m==None:
+                raise ValueError("{0}:{1}: improperly formatted line".format(manifestfn,linenum))
+
         if m.lastindex==3:
             if m[2] == 'cmd':
                 self.type = TypeCMD
@@ -101,6 +105,22 @@ class WatchResponder:
         fn = self.filename[len(self.rootdir):]
         return "WatchResponder(\"{}\",\"{}\",\"{}\",\"{}\")".format(self.rootdir,self.type,fn,self.target)
 
+    def respond(self):
+        if self.type == TypeSCP:
+            pass
+        elif self.type == TypeCMD:
+            pass
+
+
+
+def line_to_pattern_tuple(line):
+    m = rulepat2.match(line)
+    if m:
+        return (m[1], m[2], m[3])
+    else:
+        m = rulepat1.match(line)
+        return (m[1], 'scp', m[2])
+    return None
 
 
 def dprint(level, str, *args):
@@ -154,13 +174,13 @@ def write_manifest(dir,lines):
 def copy_file(srcpath,tgturi):
     import subprocess
     cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", srcpath, tgturi]
-    dprint(1, "running command {}".format(" ".join(cmd)))
+    dprint(1, " ".join(cmd))
     subprocess.run(cmd)
 
 
 def add_responder(wr):
     global responders
-    if wr.filename in responders:
+    if wr.filename in responders.keys():
         resps = responders[wr.filename]
         resps.append(wr)
     else:
@@ -182,10 +202,23 @@ def purge_patterns(dir):
 def purge_responders(dir):
     global responders
     dprint(3, "Purging watches for " + dir)
-    savedwatches = { k:v for k,v in responders.items() if v.rootdir == dir }
-    responders = { k:v for k,v in responders.items() if v.rootdir != dir }
-    dprint(5, "Purged watches are: ", str(savedwatches))
-    return savedwatches
+
+    savedlist = []
+    for fn,oldlist in responders.items():
+        newlist = []
+        for wr in oldlist:
+            if wr.rootdir == dir:
+                savedlist.append(wr)
+            else:
+                newlist.append(wr)
+        if len(newlist) > 0:
+            responders[fn] = newlist
+        else:
+            responders[fn] = []
+
+    responders = { k:v for k,v in responders.items() if v!=None and len(v)>0 }
+
+    return savedlist
 
 
 def update_manifest(mfile,dir):
@@ -205,7 +238,7 @@ def update_manifest(mfile,dir):
     removed = purge_responders(dir)
 
     # remove inotify watches that were rooted here
-    for wr in removed.values():
+    for wr in removed:
         dprint(5, "Removing file watch for {}", wr.filename)
         ino.remove_watch(wr.filename)
 
@@ -216,10 +249,12 @@ def update_manifest(mfile,dir):
     scan_for_files(dir)
 
     # Re-add inotify watches for this directory
-    rooted = { k:v for k,v in responders.items() if v.rootdir == dir }
-    for wr in rooted.values():
-        dprint(5, "Adding file watch for {}", str(wr))
-        ino.add_watch(wr.filename)
+    #rooted = { k:v for k,v in responders.items() if v!=None and v.rootdir == dir }
+    for k,resps in responders.items():
+        for wr in resps:
+            if wr.rootdir == dir:
+                dprint(5, "Adding file watch for {}", str(wr))
+                ino.add_watch(wr.filename)
     
 
 def parse_manifest(dir):
@@ -257,14 +292,14 @@ def parse_manifest(dir):
 
             try:
                 wp = WatchPattern(fn,dir,line,linenum)
+                dprint(5, "Created {}", str(wp) )
+                patterns.append(wp)
+                addedpatterns=addedpatterns+1
             except ValueError as ve:
                 dprint(1, "Couldn't parse: " + str(ve))
-            dprint(5, "Created {}", str(wp) )
-            patterns.append(wp)
-            addedpatterns=addedpatterns+1
         
     if not recursive:
-        return
+        return patterns
 
     for ent in os.scandir(dir):
         if ent.is_dir():
@@ -277,6 +312,8 @@ def parse_manifest(dir):
             cdir = dir + ent.name
             dprint(3, "Recursing into {}", cdir)
             parse_manifest(cdir)
+    
+    return patterns
      
 
 def scan_for_files(dir):
@@ -288,24 +325,22 @@ def scan_for_files(dir):
             for wp in patterns:
                 r = wp.re
                 
-                pattern = r.pattern
-                path = ent.name
+                pattern = wp.pattern
+                path = dir + ent.name
 
                 if path.startswith(wp.rootdir):
                     relpath = path[len(wp.rootdir):]
                 else:
                     relpath = ent.name
                 
-                match = r.fullmatch(relpath)                
+                match = r.fullmatch(relpath)
                 if match:
                     path=dir + ent.name
                     dprint(3, "File {} matches {}", path, pattern)
-
                     wr = WatchResponder(wp, relpath)
                     dprint(4, "Created {}", str(wr))
                     add_responder(wr)
                     break
-                
         
         if ent.is_dir() and \
             recursive and \
@@ -317,6 +352,7 @@ def scan_for_files(dir):
 
 
 def monitor_loop(dirs):
+    global responders
 
     # Parse all manifests to create WatchPatterns
     for dir in dirs:
@@ -336,9 +372,10 @@ def monitor_loop(dirs):
         ino.add_watch(m)
 
     # Prepare inotify watchers for each found file
-    for w in responders.values():
-        dprint(2, "Added file watch: {} -> {}", w.filename, w.target)
-        ino.add_watch(w.filename)
+    for fn,_ in responders.items():
+        dprint(2, "Added file watch: {}", fn)
+        ino.add_watch(fn)
+        
 
     # Main loop
     while True:
@@ -359,8 +396,8 @@ def monitor_loop(dirs):
                         update_manifest(path, m[1])
                     if path not in responders:
                         continue
-                    responders = responders[path]
-                    for wr in responders:
+                    
+                    for wr in responders[path]:
                         tgt = wr.target
                         dprint(4, "Event IN_CLOSE_WRITE: {} -> {}", path, tgt)
                         # old way:
@@ -371,13 +408,14 @@ def monitor_loop(dirs):
             print("Shutdown.")
             exit(0)
         except Exception as e:
-            print("Error: {}".format(e))
+            traceback.print_exception(None, e, e.__traceback__)
+            #print("Error: {}".format(None, e, e.__traceback__))
 
 
-def add_pattern(pattern, targetspec):
+def add_pattern(pattern, type, targetspec):
     dir = os.getcwd()
     lines = read_manifest(dir)
-    newline="{}: {}".format(pattern, targetspec)
+    newline="{}:{}: {}".format(pattern, type, targetspec)
     lines.append(newline)
     write_manifest(dir,lines)
     if (verbosity >= 2):
@@ -389,25 +427,25 @@ def add_pattern(pattern, targetspec):
 def remove_pattern(pattern, targetspec=''):
     dir = os.getcwd()
     lines = read_manifest(dir)
-    records = list(filter(lambda elem: elem != None, map(line_to_pattern_pair,lines)))
-    lines = [ elem[0] + ": " + elem[1] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[1])) ]
+    records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
+    lines = [ elem[0] + ":" + elem[1] + ": " + elem[2] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[1])) ]
     write_manifest(dir,lines)
     if (len(targetspec)>0):
-        print("{}: {}".format(pattern,targetspec))
+        print("removed {}: {}".format(pattern,targetspec))
     else:
         print(pattern)
 
 
 def str_patterns():
     lines = read_manifest(os.getcwd());
-    records = list(filter(lambda elem: elem != None, map(line_to_pattern_pair,lines)))
+    records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
     if len(records)==0:
         return ""
     z = list(zip(*records))
     maxlength = max( [ len(elem) for elem in z[0] ])
     maxlength=min(40,maxlength)
     
-    return "\n".join([ "{pat:{width}}: {target}".format(pat=r[0], width=max(len(r[0])+1,maxlength+1), target=r[1].strip()) for r in records ])
+    return "\n".join([ "{pat:{width}}:{type}: {target}".format(pat=r[0], width=max(len(r[0])+1,maxlength+1), type=r[1].strip(), target=r[2].strip()) for r in records ])
 
 
 def list_patterns():
@@ -476,7 +514,10 @@ if __name__ == "__main__":
         if len(args) != 2:
             print_usage()
             exit
-        add_pattern(*args)
+        if (len(args)==2):
+            add_pattern(args[0], 'scp', args[1])
+        else:
+            add_pattern(*args)
     elif (cmd == 'rm'):
         args = vargs[1:]
         if len(args) != 1:
