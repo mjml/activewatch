@@ -116,11 +116,11 @@ class WatchResponder:
 def line_to_pattern_tuple(line):
     m = rulepat2.match(line)
     if m:
-        return (m[1], m[2], m[3])
+        return (m[1].strip(), m[2].strip(), m[3].strip())
     else:
         m = rulepat1.match(line)
         if m:
-            return (m[1], 'scp', m[2])
+            return (m[1].strip(), 'scp', m[2].strip())
     return None
 
 
@@ -168,8 +168,25 @@ def read_manifest(dir):
 
 def write_manifest(dir,lines):
     mfest = open_manifest(dir, "w+")
-    mfest.write("\n".join(lines))
+    mfest.write("\n".join(lines) + "\n")
     mfest.close()
+
+
+def str_patterns(dir):
+    lines = read_manifest(dir)
+    lines = format_patterns(lines)
+    return "\n".join(lines)
+
+
+def format_patterns(lines):
+    records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
+    if len(records)==0:
+        return ""
+    z = list(zip(*records))
+    maxlength = max( [ len(elem) for elem in z[0] ])
+    maxlength=min(40,maxlength)
+    lines = [ "{pat:{width}}:{type}: {target}".format(pat=r[0], width=max(len(r[0])+1,maxlength+1), type=r[1].strip(), target=r[2].strip()) for r in records ]
+    return lines
 
 
 def copy_file(srcpath,tgturi):
@@ -419,9 +436,10 @@ def add_pattern(pattern, type, targetspec):
     lines = read_manifest(dir)
     newline="{}:{}: {}".format(pattern, type, targetspec)
     lines.append(newline)
+    lines = format_patterns(lines)
     write_manifest(dir,lines)
     if (verbosity >= 2):
-        list_patterns()
+        print(str_patterns(dir))
     else:
         print(newline)
 
@@ -430,30 +448,14 @@ def remove_pattern(pattern, targetspec=''):
     dir = os.getcwd()
     lines = read_manifest(dir)
     records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
-    lines = [ elem[0] + ":" + elem[1] + ": " + elem[2] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[1])) ]
+    dprint(5, str(records))
+    lines = [ elem[0] + ":" + elem[1] + ": " + elem[2] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[2])) ]
+    lines = format_patterns(lines)
     write_manifest(dir,lines)
     if (len(targetspec)>0):
         print("removed {}: {}".format(pattern,targetspec))
     else:
         print(pattern)
-
-
-def str_patterns():
-    lines = read_manifest(os.getcwd());
-    records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
-    if len(records)==0:
-        return ""
-    z = list(zip(*records))
-    maxlength = max( [ len(elem) for elem in z[0] ])
-    maxlength=min(40,maxlength)
-    
-    return "\n".join([ "{pat:{width}}:{type}: {target}".format(pat=r[0], width=max(len(r[0])+1,maxlength+1), type=r[1].strip(), target=r[2].strip()) for r in records ])
-
-
-def list_patterns():
-    s = str_patterns()
-    if len(s) > 0:
-        print(s)
 
 
 def print_usage():
@@ -527,7 +529,7 @@ if __name__ == "__main__":
             exit
         remove_pattern(*args)
     elif cmd=='list':
-        list_patterns()
+        print(str_patterns(os.getcwd()))
     else:
         print_usage()
 
