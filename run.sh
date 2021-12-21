@@ -1,1 +1,1 @@
-exec ./aw -Rvvvv -d test/ monitor
+exec ./aw -Rvvvvv -d test/ monitor
