@@ -11,6 +11,7 @@ import shlex
 
 TypeSCP = 1
 TypeCMD = 2
+TypeBASH = 3
 
 avoidhidden=True
 avoidgit=True
@@ -58,6 +59,8 @@ class WatchPattern:
                 self.type = TypeCMD
             elif m[2] == 'scp':
                 self.type = TypeSCP
+            elif m[2] == 'bash':
+                self.type = TypeBASH
             else:
                 raise ValueError("Expected 'scp' or 'cmd' for type field")
             self.target = m[3].strip()
@@ -102,11 +105,7 @@ class WatchResponder:
         self.filename = self.rootdir + relpath
         #repl = wp.target.replace("\\", "\\\\")
         repl = wp.target
-        dprint(6,"pattern: \"" + wp.pattern + "\"")
-        dprint(6,"repl:    \"" + repl + "\"")
-        dprint(6,"string:  \"" + relpath + "\"" )
         (self.target, subs) = wp.re.subn(repl, relpath)
-        dprint(6,"result:  \"" + self.target + "\" subs: " + str(subs))
     
     def __str__(self):
         fn = self.filename[len(self.rootdir):]
@@ -115,10 +114,10 @@ class WatchResponder:
     def respond(self):
         import subprocess
         if self.type == TypeSCP:
-            cmd = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
-            dprint(1, " ".join(cmd))
-            subprocess.run(cmd)
-        elif self.type == TypeCMD:
+            cmdparts = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
+            dprint(1, " ".join(cmdparts))
+            subprocess.run(cmdparts)
+        elif self.type in [ TypeCMD, TypeBASH ]:
             relpath = self.filename
             reldir = os.path.basename(self.filename)
             if reldir.startswith(self.rootdir):
@@ -128,8 +127,12 @@ class WatchResponder:
                 relpath = self.filename[len(self.rootdir):]
             cmd = self.target.format(fn=self.filename, type=self.type, tgt=self.target, basename=basename, reldir=reldir, relpath=relpath)
             cmdparts = shlex.split(cmd)
-            dprint(1, str(cmdparts))
+            if self.type == TypeBASH:
+                cmdparts = [ '/bin/bash', '-c', "\"{}\"".format(' '.join(cmdparts).replace('\"', '\"\"')) ]
+            dprint(1, ' ' .join(cmdparts))
             subprocess.run(cmdparts, cwd=self.rootdir)
+        
+
 
 
 
@@ -287,12 +290,13 @@ def update_manifest(mfile,dir):
     scan_for_files(dir)
 
     # Re-add inotify watches for this directory
-    #rooted = { k:v for k,v in responders.items() if v!=None and v.rootdir == dir }
+    added = {}
     for k,resps in responders.items():
         for wr in resps:
-            if wr.rootdir == dir:
+            if wr.rootdir == dir and wr.filename not in added:
                 dprint(5, "Adding file watch for {}", str(wr))
                 ino.add_watch(wr.filename)
+                added[wr.filename] = True
     
 
 def parse_manifest(dir):
@@ -359,7 +363,6 @@ def scan_for_files(dir):
     if not dir.endswith('/'):
         dir = dir + '/'
     dprint(5, "Scanning for files in {}", dir)
-    dirwatched=False
     for ent in os.scandir(dir):
         if ent.is_file():
             for wp in patterns:
@@ -380,7 +383,6 @@ def scan_for_files(dir):
                     wr = WatchResponder(wp, relpath)
                     dprint(4, "Created {}", str(wr))
                     add_responder(wr)
-                    dirwatched=True    
         
         if ent.is_dir() and \
             recursive and \
@@ -542,18 +544,16 @@ if __name__ == "__main__":
             add_pattern(*vargs)
         else:
             print_usage()
-            exit
-
+            exit(0)
     elif (cmd == 'rm'):
         args = vargs[1:]
-        dprint(5, "len(args)=={}".format(len(args)))
-        if len(args) not in [1,2]:
+        if len(vargs) not in [1,2]:
             print_usage()
-            exit
-        if len(args) == 1:
-            remove_pattern(*args, '')
+            exit(0)
+        if len(vargs) == 1:
+            remove_pattern(*vargs, '')
         elif len(args) == 2:
-            remove_pattern(*args)
+            remove_pattern(*vargs)
     elif (cmd == 'list'):
         print(str_patterns(os.getcwd()))
     else:
