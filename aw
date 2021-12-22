@@ -8,6 +8,6 @@ done
 dir=$(dirname "$self")
 
 # Go to that directory (where we'll find our module)
-PYTHONPATH="$PYTHONPATH":$dir exec python3 -m activewatch $@
+PYTHONPATH="$PYTHONPATH":$dir exec python3 -m activewatch "$@"
 
 
