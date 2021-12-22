@@ -114,7 +114,7 @@ class WatchResponder:
     def respond(self):
         import subprocess
         if self.type == TypeSCP:
-            cmdparts = ["/usr/bin/scp", "-o", "ControlPath=/home/joya/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
+            cmdparts = ["/usr/bin/scp", "-o", "ControlPath=~/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
             dprint(1, " ".join(cmdparts))
             subprocess.run(cmdparts)
         elif self.type in [ TypeCMD, TypeBASH ]:
