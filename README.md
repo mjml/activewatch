@@ -15,6 +15,7 @@ The syntax is simple:
 Usage
 -----
 
+```
 $ aw [-r][-R][-v*][-d <directory>][--gittoo][--hidden] <command>
 
 Options:
@@ -31,6 +32,7 @@ Options:
     add      <pattern> <targetspec>
     rm       <pattern>
     monitor
+```
 
 The monitor command will start a user daemon. It is best run in a screen session. Its output is only interesting if something goes wrong.
 
