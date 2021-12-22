@@ -71,9 +71,9 @@ class WatchPattern:
         elif self.pattern.startswith('/'):
             self.re = re.compile(self.pattern + '.*')
         elif self.pattern.endswith('$'):
-            self.re = re.compile('.*' + self.pattern)
+            self.re = re.compile('.*?' + self.pattern)
         else:
-            self.re = re.compile('.*' + self.pattern + '.*')
+            self.re = re.compile('.*?' + self.pattern + '.*')
 
 
     def __str__(self):
@@ -100,7 +100,13 @@ class WatchResponder:
         self.rootdir = wp.rootdir
         self.type = wp.type
         self.filename = self.rootdir + relpath
-        self.target = wp.re.sub(wp.target, relpath)
+        #repl = wp.target.replace("\\", "\\\\")
+        repl = wp.target
+        dprint(6,"pattern: \"" + wp.pattern + "\"")
+        dprint(6,"repl:    \"" + repl + "\"")
+        dprint(6,"string:  \"" + relpath + "\"" )
+        (self.target, subs) = wp.re.subn(repl, relpath)
+        dprint(6,"result:  \"" + self.target + "\" subs: " + str(subs))
     
     def __str__(self):
         fn = self.filename[len(self.rootdir):]
@@ -114,12 +120,15 @@ class WatchResponder:
             subprocess.run(cmd)
         elif self.type == TypeCMD:
             relpath = self.filename
+            reldir = os.path.basename(self.filename)
+            if reldir.startswith(self.rootdir):
+                reldir = reldir[len(self.rootdir):]
             basename = os.path.basename(self.filename)
             if self.filename.startswith(self.rootdir):
                 relpath = self.filename[len(self.rootdir):]
-            cmd = self.target.format(fn=self.filename, type=self.type, tgt=self.target, relpath=relpath, basename=basename)
+            cmd = self.target.format(fn=self.filename, type=self.type, tgt=self.target, basename=basename, reldir=reldir, relpath=relpath)
             cmdparts = shlex.split(cmd)
-            dprint(1, "Running: " + str(cmdparts))
+            dprint(1, str(cmdparts))
             subprocess.run(cmdparts, cwd=self.rootdir)
 
 
@@ -459,14 +468,13 @@ def remove_pattern(pattern, targetspec=''):
     dir = os.getcwd()
     lines = read_manifest(dir)
     records = list(filter(lambda elem: elem != None, map(line_to_pattern_tuple,lines)))
-    dprint(5, str(records))
     lines = [ elem[0] + ":" + elem[1] + ": " + elem[2] for elem in records if not (elem[0]==pattern and (targetspec=='' or targetspec==elem[2])) ]
     lines = format_patterns(lines)
     write_manifest(dir,lines)
     if (len(targetspec)>0):
         print("removed {}: {}".format(pattern,targetspec))
     else:
-        print(pattern)
+        print("removed " + pattern)
 
 
 def print_usage():
@@ -480,14 +488,14 @@ def print_usage():
     print("        -R                       recurse through directories that don't contain .activewatch while searching for manifests")
     print("    <command ...> can be:")
     print("        list")
-    print("        add      <pattern> <targetspec>")
-    print("        rm       <pattern>")
-    print("        monitor")
-    print()
+    print("        add      <pattern> ['scp'|'cmd'] <targetspec>")
+    print("        rm       <pattern> [targetspec]")
+    print("        monitor\n")
+    print("    ")
 
 
 if __name__ == "__main__":
-    
+
     # Grab command-line arguments
     (pairs, vargs) = getopt.getopt(sys.argv[1:],"d:rRv",["dir", "help", "gittoo", "hidden"])
     dirs=[]
@@ -521,25 +529,32 @@ if __name__ == "__main__":
         dirs.append('.')
     
     cmd = vargs[0]
+    vargs = vargs[1:]
 
+    dprint(5, "vargs: " + str(vargs))
+    
     if (cmd == 'monitor'):
         monitor_loop(dirs)
     elif (cmd == 'add'):
-        args = vargs[1:]
-        if len(args) not in [2,3]:
+        if (len(vargs)==2):
+            add_pattern(vargs[0], 'scp', vargs[1])
+        elif (len(vargs)==3):
+            add_pattern(*vargs)
+        else:
             print_usage()
             exit
-        if (len(args)==2):
-            add_pattern(args[0], 'scp', args[1])
-        else:
-            add_pattern(*args)
+
     elif (cmd == 'rm'):
         args = vargs[1:]
-        if len(args) != 1:
+        dprint(5, "len(args)=={}".format(len(args)))
+        if len(args) not in [1,2]:
             print_usage()
             exit
-        remove_pattern(*args)
-    elif cmd=='list':
+        if len(args) == 1:
+            remove_pattern(*args, '')
+        elif len(args) == 2:
+            remove_pattern(*args)
+    elif (cmd == 'list'):
         print(str_patterns(os.getcwd()))
     else:
         print_usage()
