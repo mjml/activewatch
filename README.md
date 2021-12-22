@@ -8,8 +8,10 @@ This lets you manage a tree of related DevOps files destined for separate VMs/co
 
 ActiveWatch uses a manifest file contained in each directory called '.activewatch'.
 
-The syntax is simple:
-  <file pattern>: <target spec>
+The syntax for ```.activewatch/manifest``` is simple:
+  ``` <file pattern>:<type>:<target spec> ```
+
+...where ```<type``` is ```scp|cmd|bash```
 
 
 Usage
