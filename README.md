@@ -119,7 +119,7 @@ In the current version, the user must set up passwordless ssh login to the targe
 
 The ```cmd``` type results in a spawned subprocess using the specified target as command and arguments.
 
-The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string as arguments.
+The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string as a quoted using the ```-c``` switch to execute commands within the shell.
 
 
 Target Specification

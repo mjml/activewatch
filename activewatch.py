@@ -129,7 +129,7 @@ class WatchResponder:
             cmd = self.target.format(type=self.type, tgt=self.target, basename=basename, reldir=reldir, relpath=relpath)
             cmdparts = shlex.split(cmd)
             if self.type == TypeBASH:
-                cmdparts = [ '/bin/bash', '-c', "\"{}\"".format(' '.join(cmdparts).replace('\"', '\"\"')) ]
+                cmdparts = [ '/bin/bash', '-c', "\"{}\"".format(' '.join(cmdparts)) ]
             dprint(1, ' ' .join(cmdparts))
             subprocess.run(cmdparts, cwd=self.rootdir)
 
