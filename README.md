@@ -110,15 +110,16 @@ Response Type
 -------------
 
 The secondary part of a manifest entry is the type field.
-This is just ```scp|cmd|bash```.
+This is one of ```scp|cmd|bash```.
 
 The ```scp``` type results in an ```scp``` command from the absolute path of the matched file to the specified target.
 This method will try to reuse a control socket under your $HOME/.ssh directory and leave it open for 15 minutes so that subsequent copies
   can reuse the tcp connection, resulting in faster operation.
+In the current version, the user must set up passwordless ssh login to the target machine in order for this type to be viable.
 
 The ```cmd``` type results in a spawned subprocess using the specified target as command and arguments.
 
-The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string as parameters.
+The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string as arguments.
 
 
 Target Specification
