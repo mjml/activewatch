@@ -2,7 +2,7 @@ ActiveWatch
 ===========
 
 ActiveWatch lets you manage a folder of related files for deployment to separate filesystems / VMs / containers / machines.
-When a watched file is saved, it triggers a actions such as secure-copy (```scp```),
+When a watched file is saved, it triggers automation such as secure-copy (```scp```),
   raw commands, and shell scripts.
 
 These scripts automate your workflow so that the automation happens immediately as you work on your files on a local machine.
