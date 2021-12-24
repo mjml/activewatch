@@ -1,7 +1,7 @@
 ActiveWatch
 ===========
 
-ActiveWatch lets you manage a folder of related files for deployment to separate filesystems/VMs/containers/machines.
+ActiveWatch lets you manage a folder of related files for deployment to separate filesystems / VMs / containers / machines.
 When a watched file is saved, it triggers a set of actions such as secure-copy (```scp```),
   raw commands, and shell scripts.
 
