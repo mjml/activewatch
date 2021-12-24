@@ -113,27 +113,25 @@ class WatchResponder:
 
     def respond(self):
         import subprocess
+        relpath = self.filename
+        reldir = os.path.basename(self.filename)
+        if reldir.startswith(self.rootdir):
+            reldir = reldir[len(self.rootdir):]
+        basename = os.path.basename(self.filename)
+        
+        if self.filename.startswith(self.rootdir):
+            relpath = self.filename[len(self.rootdir):]
         if self.type == TypeSCP:
             cmdparts = ["/usr/bin/scp", "-o", "ControlPath=~/.ssh/controlmasters/%r@%h", "-o", "ControlMaster=auto", "-o", "ControlPersist=15m", self.filename, self.target]
             dprint(1, " ".join(cmdparts))
             subprocess.run(cmdparts)
         elif self.type in [ TypeCMD, TypeBASH ]:
-            relpath = self.filename
-            reldir = os.path.basename(self.filename)
-            if reldir.startswith(self.rootdir):
-                reldir = reldir[len(self.rootdir):]
-            basename = os.path.basename(self.filename)
-            if self.filename.startswith(self.rootdir):
-                relpath = self.filename[len(self.rootdir):]
-            cmd = self.target.format(fn=self.filename, type=self.type, tgt=self.target, basename=basename, reldir=reldir, relpath=relpath)
+            cmd = self.target.format(type=self.type, tgt=self.target, basename=basename, reldir=reldir, relpath=relpath)
             cmdparts = shlex.split(cmd)
             if self.type == TypeBASH:
                 cmdparts = [ '/bin/bash', '-c', "\"{}\"".format(' '.join(cmdparts).replace('\"', '\"\"')) ]
             dprint(1, ' ' .join(cmdparts))
             subprocess.run(cmdparts, cwd=self.rootdir)
-        
-
-
 
 
 def line_to_pattern_tuple(line):
