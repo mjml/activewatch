@@ -1,16 +1,16 @@
 ActiveWatch
 ===========
 
-ActiveWatch lets you manage a folder of related files destined for separate filesystems/VMs/containers/machines.
-This consolidates deployment of configuration files, cryptographic keys, and other "systems admin" files
-  that would otherwise be scattered across a filesystem or across several machines.
+ActiveWatch lets you manage a folder of related files for deployment to separate filesystems/VMs/containers/machines.
+When a watched file is saved, it triggers a set of actions such as secure-copy (```scp```),
+  raw commands, and shell scripts.
 
-It provides a command-line tool and user daemon that deploys files and run commands on files
-  automatically as you are working on them on your local system.
-As soon as you save a file, the ActiveWatch daemon runs scripts and copies files immediately using
-  a list of file patterns and response actions that you define.
+These scripts automate your workflow so that the automation happens seamlessly as you work on your files on a local machine.
+This allows you to manage versioning and deployment of files for several machines under a single folder.
 
-Now you can manage and version all the files in your home cluster, cloud cluster, router, and web server all from a single folder.
+ActiveWatch provides a command-line tool ```aw``` with a user daemon that handles the event dispatch and secure copy
+  handling.
+The command line tool lets you specify patterns and responses directly from the command line, simplifying development.
 
 
 Command Usage
