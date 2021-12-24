@@ -2,22 +2,19 @@ ActiveWatch
 ===========
 
 ActiveWatch lets you manage a folder of related files for deployment to separate filesystems / VMs / containers / machines.
-When a watched file is saved, it triggers a set of actions such as secure-copy (```scp```),
+When a watched file is saved, it triggers a actions such as secure-copy (```scp```),
   raw commands, and shell scripts.
 
-These scripts automate your workflow so that the automation happens seamlessly as you work on your files on a local machine.
+These scripts automate your workflow so that the automation happens immediately as you work on your files on a local machine.
 This allows you to manage versioning and deployment of files for several machines under a single folder.
-
-ActiveWatch provides a command-line tool ```aw``` with a user daemon that handles the event dispatch and secure copy
-  handling.
-The command line tool lets you specify patterns and responses directly from the command line, simplifying development.
 
 
 Command Usage
 -------------
 
 In devops style, Activewatch has a monolithic tool called ```aw``` that provides a command-line interface
-  to its saved state for a given folder.
+  to its saved state for a given folder, and allows you to start the user daemon (```aw monitor```) that
+	dispatches automation responses.
 
 
 ```
