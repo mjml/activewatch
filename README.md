@@ -129,8 +129,11 @@ The ```bash``` type is like the former, but instead of an arbitrary command it s
 Response Specification
 ----------------------
 
-The tertiary part of a manifest entry is the replacement text.
-Here, you may use traditional python regexp back-references (\1, \2...\n, etc.) as well as a few predefined interpolation variables.
+The tertiary part of a manifest entry is used to compose the response.
+This part is used in different ways by the different response types, but typically you are making up another destination path or filename
+  that is similar to the original relative path.
+Here, you may use traditional python regexp back-references (\1, \2...\n, etc.) to refer to captured groups in the original pattern,
+  as well as a number of predefined interpolation variables.
 
 The following interpolation variables are supported:
 ```
