@@ -22,25 +22,28 @@ $ aw [-r][-R][-v*][-d <directory>][--gittoo][--hidden] <command>
 
 Options:
     -d <directory>   Specify the starting directory in which to look for .activewatch
-		--gittoo         Recurse into .git directories (normally suppressed)
-		--help           Shows this message
-		--hidden         Recurse into .hidden directories (normally suppressed)
+    --gittoo         Recurse into .git directories (normally suppressed)
+    --help           Shows this message
+    --hidden         Recurse into .hidden directories (normally suppressed)
     -r               Recurse into subdirectories
     -R               Recurse below directories that don't contain .activewatch
-		-v (multiple times) Be more verbose
+    -v (multiple times) Be more verbose
 
 <command> can be one of:
-		list
-    add      <pattern> <targetspec>
-    rm       <pattern>
+    list
+    add      <pattern> [type] <targetspec>
+    rm       <pattern> [targetspec]
     monitor
 ```
 
-The monitor command will start a user daemon. It is best run in a screen session. Its output is only interesting if something goes wrong.
+The ```monitor``` command will start a user daemon.
+It is best run in a ```screen``` session.
+Its output is usually only interesting if something goes wrong.
 
 In order for the user daemon to use scp, ssh must be set up for passwordless login.
 
-You can add or remove patterns and targets while the daemon is running. It will set up watches on its own files so that added patterns
+You can ```add``` or ```remove``` patterns and targets while the daemon is running.
+It will set up watches on its own files so that added patterns
   immediately set up watches for that running daemon.
 
 
@@ -119,11 +122,12 @@ In the current version, the user must set up passwordless ssh login to the targe
 
 The ```cmd``` type results in a spawned subprocess using the specified target as command and arguments.
 
-The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string as a quoted using the ```-c``` switch to execute commands within the shell.
+The ```bash``` type is like the former, but instead of an arbitrary command it simply starts /bin/bash and passes the target string
+  as a quoted using the ```-c``` switch to execute commands within the shell.
 
 
-Target Specification
---------------------
+Response Specification
+----------------------
 
 The tertiary part of a manifest entry is the replacement text.
 Here, you may use traditional python regexp back-references (\1, \2...\n, etc.) as well as a few predefined interpolation variables.
